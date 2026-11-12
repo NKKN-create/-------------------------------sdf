@@ -2,29 +2,596 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="robots" content="noindex">
-  <title>Cuida a mi Abuelo — Prueba</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Family Track</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
-    body {
-      margin: 0; min-height: 100vh;
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; color: #1a1a1a; }
+    #map { position: absolute; inset: 0; z-index: 1; }
+
+    /* ── Top bar ─────────────────────────────────────── */
+    #top-bar {
+      position: absolute; top: 12px; left: 12px; right: 12px;
+      z-index: 1000; display: flex; gap: 8px; flex-wrap: wrap;
+      pointer-events: none;
+    }
+    .pill {
+      background: rgba(15, 23, 42, 0.94);
+      color: white; padding: 8px 12px; border-radius: 10px;
+      font-size: 13px; font-weight: 600;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      display: flex; align-items: center; gap: 6px;
+      pointer-events: auto; backdrop-filter: blur(8px);
+    }
+    .pill svg { opacity: 0.9; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #4CAF50; display: inline-block;
+      box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.3);
+    }
+    .status-dot.offline { background: #9E9E9E; box-shadow: 0 0 0 3px rgba(158,158,158,0.3); }
+    .status-dot.sos { background: #EF5350; box-shadow: 0 0 0 3px rgba(239,83,80,0.4); animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+    /* ── Bottom panel ────────────────────────────────── */
+    #bottom-panel {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: #fff; z-index: 1000;
+      border-radius: 16px 16px 0 0;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.12);
+      padding: 14px 16px 18px; max-height: 55vh; overflow-y: auto;
+    }
+
+    #mode-tabs {
+      display: flex; gap: 4px; margin-bottom: 14px;
+      background: #F1F5F9; padding: 4px; border-radius: 10px;
+    }
+    .tab {
+      flex: 1; padding: 10px; border: none; background: transparent;
+      font-size: 14px; font-weight: 600; color: #64748B;
+      border-radius: 8px; cursor: pointer; transition: all 0.15s;
+    }
+    .tab.active { background: #fff; color: #0F172A; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+
+    #live-view { display: none; }
+    #history-view { display: none; }
+    #live-view.active, #history-view.active { display: block; }
+
+    #date-picker {
+      width: 100%; padding: 10px 12px;
+      border: 1px solid #E2E8F0; border-radius: 10px;
+      font-size: 14px; margin-bottom: 14px; background: #fff;
+      font-family: inherit;
+    }
+
+    .slider-container { padding: 4px 0 8px; }
+    #time-slider {
+      width: 100%; height: 4px; border-radius: 2px;
+      background: linear-gradient(to right, #CBD5E1, #2563EB);
+      outline: none; -webkit-appearance: none; margin: 10px 0;
+    }
+    #time-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 26px; height: 26px;
+      border-radius: 50%; background: #2563EB; cursor: pointer;
+      border: 3px solid #fff; box-shadow: 0 2px 8px rgba(37,99,235,0.4);
+    }
+    #time-slider::-moz-range-thumb {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: #2563EB; cursor: pointer; border: 3px solid #fff;
+    }
+
+    .time-display {
+      display: flex; justify-content: space-between;
+      align-items: baseline; margin-top: 10px;
+    }
+    #time-label { font-size: 26px; font-weight: 800; color: #0F172A; font-variant-numeric: tabular-nums; }
+    #history-status { font-size: 12px; color: #64748B; text-align: right; flex: 1; margin-left: 12px; }
+    #history-status.empty { color: #EF5350; }
+
+    .primary-btn {
+      width: 100%; padding: 13px; background: #2563EB; color: white;
+      border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
+      cursor: pointer; margin-top: 12px; transition: background 0.15s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .primary-btn:hover { background: #1D4ED8; }
+    .primary-btn:disabled { opacity: 0.6; cursor: wait; }
+
+    #share-result {
+      display: none; margin-top: 12px; padding: 12px;
+      background: #EFF6FF; border-radius: 10px;
+      border: 1px solid #BFDBFE;
+    }
+    #share-result.active { display: block; }
+    .share-url {
+      font-size: 12px; word-break: break-all;
+      padding: 10px; background: white; border-radius: 8px;
+      font-family: ui-monospace, monospace; margin-bottom: 10px;
+      border: 1px solid #DBEAFE; max-height: 62px; overflow-y: auto;
+      color: #1E40AF;
+    }
+    .share-actions { display: flex; gap: 8px; }
+    .share-actions button {
+      padding: 10px; border: none; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    #btn-copy { flex: 1; background: #16A34A; color: white; }
+    #btn-close-share { background: #E2E8F0; color: #475569; min-width: 44px; }
+    #share-expiry { font-size: 11px; color: #64748B; margin-top: 8px; text-align: center; }
+
+    .btn-center {
+      position: absolute; right: 12px; bottom: calc(55vh + 12px);
+      width: 48px; height: 48px; border-radius: 50%;
+      background: #fff; border: none; z-index: 999;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      color: #2563EB;
+    }
+    .btn-center:hover { background: #EFF6FF; }
+
+    #share-banner {
+      position: absolute; top: 60px; left: 12px; right: 12px;
+      z-index: 999; background: #F59E0B;
+      color: white; padding: 10px 14px; border-radius: 10px;
+      text-align: center; font-size: 12px; font-weight: 600;
+      display: none; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    #share-banner.active { display: block; }
+
+    #empty-live {
+      text-align: center; padding: 28px 0;
+      color: #64748B; font-size: 14px;
+    }
+
+    #error-screen {
+      position: fixed; inset: 0; z-index: 2000;
+      background: #0F172A; color: white;
       display: flex; flex-direction: column;
       justify-content: center; align-items: center;
-      background: #0D47A1; color: white;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      text-align: center; padding: 24px;
+      padding: 32px; text-align: center;
     }
-    .emoji { font-size: 96px; margin-bottom: 16px; }
-    h1 { font-size: 28px; margin-bottom: 8px; }
-    p { font-size: 16px; opacity: 0.85; max-width: 400px; }
-    .check { color: #4CAF50; font-weight: 800; font-size: 20px; margin-top: 24px; }
+    #error-screen h1 { font-size: 22px; margin-bottom: 12px; font-weight: 700; }
+    #error-screen p { font-size: 14px; opacity: 0.8; max-width: 400px; line-height: 1.5; }
+
+    @media (min-width: 900px) {
+      #bottom-panel { max-width: 440px; left: 50%; transform: translateX(-50%); border-radius: 16px; margin-bottom: 16px; bottom: 0; }
+      .btn-center { bottom: auto; top: 12px; right: 12px; }
+      #top-bar { right: auto; }
+    }
   </style>
 </head>
 <body>
-  <div class="emoji">👴</div>
-  <h1>¡Funciona!</h1>
-  <p>Esta es la página de prueba del panel de geolocalización.</p>
-  <p>En el siguiente paso reemplazaremos este contenido por el mapa real.</p>
-  <div class="check">✓ GitHub Pages activo</div>
+  <div id="map"></div>
+
+  <div id="top-bar">
+    <div class="pill">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-label">Sin señal</span>
+    </div>
+    <div class="pill" id="battery-pill" style="display:none">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="16" height="10" rx="2"></rect><line x1="22" y1="11" x2="22" y2="13"></line></svg>
+      <span id="battery-text">--%</span>
+    </div>
+    <div class="pill" id="update-pill" style="display:none">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+      <span id="update-text">--</span>
+    </div>
+  </div>
+
+  <div id="share-banner"></div>
+
+  <button class="btn-center" id="btn-center" title="Centrar">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+  </button>
+
+  <div id="bottom-panel">
+    <div id="mode-tabs">
+      <button class="tab active" data-mode="live">En vivo</button>
+      <button class="tab" data-mode="history">Historial</button>
+    </div>
+
+    <div id="live-view" class="active">
+      <div id="empty-live">Esperando ubicación del dispositivo…</div>
+    </div>
+
+    <div id="history-view">
+      <input type="date" id="date-picker" />
+      <div class="slider-container">
+        <input type="range" id="time-slider" min="0" max="95" step="1" value="0" />
+        <div class="time-display">
+          <span id="time-label">00:00</span>
+          <span id="history-status"></span>
+        </div>
+      </div>
+    </div>
+
+    <button id="btn-share" class="primary-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+      Compartir enlace (24h)
+    </button>
+    <div id="share-result">
+      <div class="share-url" id="share-url"></div>
+      <div class="share-actions">
+        <button id="btn-copy">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          Copiar enlace
+        </button>
+        <button id="btn-close-share">×</button>
+      </div>
+      <div id="share-expiry"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getDatabase, ref, get, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+    // ═══════════════════════════════════════════════════════
+    // CONFIGURACIÓN
+    // ═══════════════════════════════════════════════════════
+    const firebaseConfig = {
+      apiKey: "AIzaSyB_3RDyidD-GEROzjx4-janaFfYTAGJKJQ",
+      authDomain: "geon-abb5f.firebaseapp.com",
+      databaseURL: "https://geon-abb5f-default-rtdb.firebaseio.com",
+      projectId: "geon-abb5f",
+      storageBucket: "geon-abb5f.firebasestorage.app",
+      messagingSenderId: "665712530457",
+      appId: "1:665712530457:web:b46e0de7a37159c252c688"
+    };
+
+    const ELDER_ID = 'device-001';
+    const SLOT_MINUTES = 15;
+    const MAP_CENTER = [-13.5319, -71.9675];
+    const ZOOM = 13;
+    const SHARE_HOURS = 24;
+
+    // ═══════════════════════════════════════════════════════
+    // INICIALIZACIÓN
+    // ═══════════════════════════════════════════════════════
+    initializeApp(firebaseConfig);
+    const db = getDatabase();
+    const params = new URLSearchParams(location.search);
+    const shareToken = params.get('share');
+
+    const map = L.map('map').setView(MAP_CENTER, ZOOM);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors', maxZoom: 19,
+    }).addTo(map);
+
+    // ═══════════════════════════════════════════════════════
+    // ESTADO
+    // ═══════════════════════════════════════════════════════
+    let liveMarker = null;
+    let liveUnsubscribe = null;
+    let historyMarker = null;
+    let historyLayers = [];
+    let historyData = {};
+    let currentMode = 'live';
+    let currentDate = todayKey();
+    let currentSlot = 0;
+    let hasCenteredLive = false;
+    let lastLiveUpdate = 0;
+
+    // ═══════════════════════════════════════════════════════
+    // DOM
+    // ═══════════════════════════════════════════════════════
+    const $ = (id) => document.getElementById(id);
+    const els = {
+      statusDot: $('status-dot'), statusLabel: $('status-label'),
+      batteryPill: $('battery-pill'), batteryText: $('battery-text'),
+      updatePill: $('update-pill'), updateText: $('update-text'),
+      datePicker: $('date-picker'), timeSlider: $('time-slider'),
+      timeLabel: $('time-label'), historyStatus: $('history-status'),
+      liveView: $('live-view'), historyView: $('history-view'),
+      emptyLive: $('empty-live'),
+      btnShare: $('btn-share'), shareResult: $('share-result'),
+      shareUrl: $('share-url'), shareExpiry: $('share-expiry'),
+      shareBanner: $('share-banner'), btnCenter: $('btn-center'),
+    };
+
+    // ═══════════════════════════════════════════════════════
+    // UTILIDADES
+    // ═══════════════════════════════════════════════════════
+    const pad2 = (n) => String(n).padStart(2, '0');
+
+    function todayKey(d = new Date()) {
+      return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+    }
+    function slotToTime(slot) {
+      return `${pad2(Math.floor(slot * SLOT_MINUTES / 60))}:${pad2((slot * SLOT_MINUTES) % 60)}`;
+    }
+    function slotToKey(slot) {
+      return `${pad2(Math.floor(slot * SLOT_MINUTES / 60))}${pad2((slot * SLOT_MINUTES) % 60)}`;
+    }
+    function nowSlot() {
+      const n = new Date();
+      return Math.floor((n.getHours()*60 + n.getMinutes()) / SLOT_MINUTES);
+    }
+    function relTime(ts) {
+      if (!ts) return '—';
+      const diff = Math.floor((Date.now() - ts) / 1000);
+      if (diff < 60) return 'ahora';
+      if (diff < 3600) return `hace ${Math.floor(diff/60)} min`;
+      if (diff < 86400) return `hace ${Math.floor(diff/3600)} h`;
+      return `hace ${Math.floor(diff/86400)} d`;
+    }
+    function randomToken() {
+      if (crypto.randomUUID) return crypto.randomUUID().replace(/-/g, '');
+      const arr = new Uint8Array(16);
+      crypto.getRandomValues(arr);
+      return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function makeMarker(latlng, isSos) {
+      const color = isSos ? '#EF5350' : '#2563EB';
+      return L.marker(latlng, {
+        icon: L.divIcon({
+          className: '',
+          html: `<div style="background:${color};width:20px;height:20px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 3px ${color},0 2px 8px rgba(0,0,0,0.3);"></div>`,
+          iconSize: [20, 20], iconAnchor: [10, 10],
+        }),
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // VISTA EN VIVO
+    // ═══════════════════════════════════════════════════════
+    function subscribeLive() {
+      if (liveUnsubscribe) return;
+      liveUnsubscribe = onValue(ref(db, `elders/${ELDER_ID}`), (snap) => {
+        const data = snap.val();
+        if (!data || !data.latitude) {
+          els.statusDot.className = 'status-dot offline';
+          els.statusLabel.textContent = 'Sin señal';
+          els.updatePill.style.display = 'flex';
+          els.updateText.textContent = '—';
+          els.emptyLive.textContent = 'Esperando ubicación del dispositivo…';
+          els.emptyLive.style.display = 'block';
+          return;
+        }
+
+        const isSos = !!data.sos;
+        const latlng = [data.latitude, data.longitude];
+
+        if (liveMarker) liveMarker.remove();
+        liveMarker = makeMarker(latlng, isSos).addTo(map);
+
+        els.statusDot.className = 'status-dot' + (isSos ? ' sos' : '');
+        els.statusLabel.textContent = isSos ? 'Emergencia' : 'En línea';
+        els.batteryPill.style.display = 'flex';
+        els.batteryText.textContent = `${data.battery ?? '?'}%`;
+        els.updatePill.style.display = 'flex';
+        lastLiveUpdate = data.updatedAt || Date.now();
+        els.updateText.textContent = relTime(lastLiveUpdate);
+        els.emptyLive.style.display = 'none';
+
+        if (!hasCenteredLive || isSos) {
+          map.setView(latlng, 16);
+          hasCenteredLive = true;
+        }
+      });
+    }
+
+    function unsubscribeLive() {
+      if (liveUnsubscribe) { liveUnsubscribe(); liveUnsubscribe = null; }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // HISTORIAL
+    // ═══════════════════════════════════════════════════════
+    function clearHistoryLayers() {
+      historyLayers.forEach((l) => l.remove());
+      historyLayers = [];
+      if (historyMarker) { historyMarker.remove(); historyMarker = null; }
+    }
+
+    async function loadHistory(dateKey) {
+      clearHistoryLayers();
+      els.historyStatus.textContent = 'Cargando…';
+      els.historyStatus.classList.remove('empty');
+
+      try {
+        const snap = await get(ref(db, `history/${ELDER_ID}/${dateKey}`));
+        historyData = snap.val() || {};
+      } catch (e) {
+        els.historyStatus.textContent = 'Error de conexión';
+        els.historyStatus.classList.add('empty');
+        return;
+      }
+
+      const entries = Object.entries(historyData).sort(([a], [b]) => a.localeCompare(b));
+
+      if (entries.length > 1) {
+        const points = entries.map(([, v]) => [v.lat, v.lng]);
+        historyLayers.push(L.polyline(points, {
+          color: '#2563EB', weight: 3, opacity: 0.5, dashArray: '6,6',
+        }).addTo(map));
+      }
+      entries.forEach(([, v]) => {
+        historyLayers.push(L.circleMarker([v.lat, v.lng], {
+          radius: 3, color: '#2563EB', fillColor: '#2563EB',
+          fillOpacity: 0.5, weight: 1,
+        }).addTo(map));
+      });
+
+      if (entries.length) {
+        const last = entries[entries.length - 1][1];
+        map.setView([last.lat, last.lng], 15);
+      } else {
+        map.setView(MAP_CENTER, ZOOM);
+      }
+      updateHistoryMarker();
+    }
+
+    function updateHistoryMarker() {
+      const timeStr = slotToTime(currentSlot);
+      els.timeLabel.textContent = timeStr;
+
+      if (historyMarker) { historyMarker.remove(); historyMarker = null; }
+
+      const point = historyData[slotToKey(currentSlot)];
+      if (point) {
+        historyMarker = makeMarker([point.lat, point.lng], false).addTo(map);
+        els.historyStatus.textContent = `Batería ${point.battery ?? '?'}%`;
+        els.historyStatus.classList.remove('empty');
+        map.panTo([point.lat, point.lng], { animate: true, duration: 0.4 });
+        return;
+      }
+
+      let found = null;
+      for (let s = currentSlot - 1; s >= 0; s--) {
+        const p = historyData[slotToKey(s)];
+        if (p) { found = { ...p, fromSlot: s }; break; }
+      }
+
+      if (found) {
+        historyMarker = L.marker([found.lat, found.lng], { opacity: 0.4 }).addTo(map);
+        els.historyStatus.textContent = `Sin datos · último: ${slotToTime(found.fromSlot)}`;
+        els.historyStatus.classList.add('empty');
+        map.panTo([found.lat, found.lng], { animate: true, duration: 0.4 });
+      } else {
+        els.historyStatus.textContent = 'Sin datos a esta hora';
+        els.historyStatus.classList.add('empty');
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // COMPARTIR (24H)
+    // ═══════════════════════════════════════════════════════
+    async function generateShare() {
+      els.btnShare.disabled = true;
+      els.btnShare.textContent = 'Generando…';
+      try {
+        const token = randomToken();
+        const expiresAt = Date.now() + SHARE_HOURS * 3600 * 1000;
+        await set(ref(db, `shares/${token}`), {
+          elderId: ELDER_ID, expiresAt, createdAt: Date.now(),
+        });
+        const url = `${location.origin}${location.pathname}?share=${token}`;
+        els.shareUrl.textContent = url;
+        els.shareExpiry.textContent = `Expira: ${new Date(expiresAt).toLocaleString('es-PE')}`;
+        els.shareResult.classList.add('active');
+      } catch (e) {
+        alert('Error al generar el enlace: ' + e.message);
+      } finally {
+        els.btnShare.disabled = false;
+        els.btnShare.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg> Compartir enlace (24h)`;
+      }
+    }
+
+    async function validateShare() {
+      try {
+        const snap = await get(ref(db, `shares/${shareToken}`));
+        const data = snap.val();
+        if (!data) return { ok: false, reason: 'Este enlace ya no existe o fue eliminado.' };
+        if (data.expiresAt < Date.now()) return { ok: false, reason: 'Este enlace ha expirado.' };
+        const hoursLeft = Math.ceil((data.expiresAt - Date.now()) / 3600000);
+        return { ok: true, hoursLeft };
+      } catch (e) {
+        return { ok: false, reason: 'No se pudo verificar el enlace.' };
+      }
+    }
+
+    function showError(title, msg) {
+      const div = document.createElement('div');
+      div.id = 'error-screen';
+      div.innerHTML = `<h1>${title}</h1><p>${msg}</p>`;
+      document.body.appendChild(div);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // EVENTOS UI
+    // ═══════════════════════════════════════════════════════
+    function setupUI() {
+      document.querySelectorAll('.tab').forEach((tab) => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          currentMode = tab.dataset.mode;
+
+          if (currentMode === 'live') {
+            els.liveView.classList.add('active');
+            els.historyView.classList.remove('active');
+            clearHistoryLayers();
+            hasCenteredLive = false;
+            subscribeLive();
+          } else {
+            els.liveView.classList.remove('active');
+            els.historyView.classList.add('active');
+            unsubscribeLive();
+            if (liveMarker) { liveMarker.remove(); liveMarker = null; }
+            currentSlot = nowSlot();
+            els.timeSlider.value = currentSlot;
+            loadHistory(currentDate);
+          }
+        });
+      });
+
+      els.datePicker.value = currentDate;
+      els.datePicker.max = todayKey();
+      els.datePicker.addEventListener('change', () => {
+        currentDate = els.datePicker.value;
+        loadHistory(currentDate);
+      });
+
+      els.timeSlider.addEventListener('input', (e) => {
+        currentSlot = parseInt(e.target.value);
+        updateHistoryMarker();
+      });
+
+      els.btnShare.addEventListener('click', generateShare);
+
+      $('btn-copy').addEventListener('click', async () => {
+        const txt = els.shareUrl.textContent;
+        try { await navigator.clipboard.writeText(txt); }
+        catch {
+          const ta = document.createElement('textarea');
+          ta.value = txt; document.body.appendChild(ta); ta.select();
+          document.execCommand('copy'); document.body.removeChild(ta);
+        }
+        $('btn-copy').textContent = '✓ Copiado';
+        setTimeout(() => {
+          $('btn-copy').innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Copiar enlace`;
+        }, 2000);
+      });
+
+      $('btn-close-share').addEventListener('click', () => {
+        els.shareResult.classList.remove('active');
+      });
+
+      els.btnCenter.addEventListener('click', () => {
+        const m = currentMode === 'live' ? liveMarker : historyMarker;
+        if (m) map.setView(m.getLatLng(), 16);
+      });
+    }
+
+    setInterval(() => {
+      if (currentMode === 'live' && lastLiveUpdate) {
+        els.updateText.textContent = relTime(lastLiveUpdate);
+      }
+    }, 30000);
+
+    // ═══════════════════════════════════════════════════════
+    // ARRANQUE
+    // ═══════════════════════════════════════════════════════
+    (async function init() {
+      if (shareToken) {
+        const result = await validateShare();
+        if (!result.ok) { showError('Enlace no válido', result.reason); return; }
+        els.btnShare.style.display = 'none';
+        document.querySelectorAll('.tab').forEach(t => {
+          if (t.dataset.mode === 'history') t.style.display = 'none';
+        });
+        els.shareBanner.textContent = `Enlace compartido · expira en ${result.hoursLeft}h`;
+        els.shareBanner.classList.add('active');
+      }
+      setupUI();
+      subscribeLive();
+    })();
+  </script>
 </body>
 </html>
